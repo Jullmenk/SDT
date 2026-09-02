@@ -12,16 +12,7 @@ import io.ipfs.multihash.Multihash;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * RF1, lado do peer: recebe PREPARE ("atualizacao") e COMMIT, confirma, e faz pinning.
- *
- * CORREÇÃO (regra de pinning do RF1, ver DOCUMENTACAO_SPRINTS.md Sprint 1): o líder já
- * escolhe (de forma determinística) que peers devem fazer pinning de cada CID e envia
- * essa lista na mensagem PREPARE (campo "peersPin", ver lider.LiderConsenso). Este peer
- * guarda essa lista junto com a versão pendente e, ao aplicar o COMMIT, verifica se o seu
- * próprio id está nela; se estiver, chama ipfs.pin.add(cid) para garantir a redundância
- * pedida ("pelo menos 2 peers").
- */
+
 public class PeerConsenso {
 
     private final IPFS ipfs;
@@ -36,7 +27,6 @@ public class PeerConsenso {
         this.faiss = faiss;
     }
 
-    /** RF1 - Peer, passos 1-6: recebe PREPARE, valida versão, guarda pendente e confirma. */
     public void tratarAtualizacao(JsonObject json) {
         String cid = json.has("cid") ? json.get("cid").getAsString() : null;
         if (cid == null || !json.has("versaoVetor")) {
@@ -46,14 +36,9 @@ public class PeerConsenso {
 
         int versao = json.get("versaoVetor").getAsInt();
 
-        // RF1 - Peer, passo 2: verificação de conflito de versões (versão já ultrapassada localmente).
         if (versao <= estado.getVersaoConfirmada()) {
             System.out.println("AVISO: PREPARE com versão não superior à confirmada localmente " +
                     "(recebida=" + versao + ", local=" + estado.getVersaoConfirmada() + "). Ignorado.");
-            // NOTA: isto cobre o caso "versão desatualizada". Um verdadeiro processo de
-            // resolução de conflitos concorrentes (duas propostas para a MESMA versão, com
-            // conteúdo diferente) continua por implementar - ver DOCUMENTACAO_SPRINTS.md,
-            // Sprint 3, tal como o próprio enunciado admite ("a implementar no futuro").
             return;
         }
 
@@ -76,18 +61,15 @@ public class PeerConsenso {
             for (JsonElement el : json.getAsJsonArray("peersPin")) peersPin.add(el.getAsString());
         }
 
-        // RF1 - Peer, passos 4-5: cria a nova versão pendente e guarda os embeddings temporariamente.
         estado.registarVersaoPendente(versao, cid, novoVetor, embeddings, peersPin);
 
         String hashLocal = HashUtil.calcularHashVetor(novoVetor);
         System.out.println("PREPARE recebido: cid=" + cid + " versaoVetor=" + versao +
                 " documentos=" + novoVetor.size() + " hashLocal=" + hashLocal);
 
-        // RF1 - Peer, passo 6: devolve a hash do vetor de CIDs ao líder.
         enviarConfirmacao(versao, hashLocal);
     }
 
-    /** RF1 - Peer, passos finais: aplica o commit, atualiza o índice FAISS e faz pinning se responsável. */
     public void tratarCommit(JsonObject json) {
         if (!json.has("versaoVetor")) {
             System.out.println("COMMIT sem versão, ignorado.");
@@ -127,7 +109,6 @@ public class PeerConsenso {
         System.out.println("FAISS /index -> " + resp);
     }
 
-    /** Regra do RF1: "cada ficheiro/embedding deve ser pinned por pelo menos 2 peers". */
     private void fazerPinningSeResponsavel(int versao, String cid) {
         List<String> peersPin = estado.getPeersPinPendentes(versao);
         if (!peersPin.contains(estado.meuId)) {

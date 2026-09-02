@@ -7,17 +7,6 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
-/**
- * Cliente HTTP simples para o serviço externo FAISS (faiss_service.py).
- *
- * CORREÇÃO: o código original não definia connectTimeout/readTimeout no
- * HttpURLConnection. Se o serviço FAISS ficasse indisponível ou bloqueado, a chamada
- * ficava pendurada indefinidamente — e como esta chamada corria dentro do método que
- * também tratava heartbeats/eleição, um FAISS lento podia impedir a deteção de falha do
- * líder nesse peer (ver DOCUMENTACAO_SPRINTS.md, secção RNF2/RNF3). Agora tem timeouts
- * configuráveis e o processamento de queries corre num executor à parte (ver Peer.java),
- * por isso já não bloqueia o resto do peer mesmo que o FAISS demore.
- */
 public class FaissClient {
 
     private final String baseUrl;

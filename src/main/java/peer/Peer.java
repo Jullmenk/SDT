@@ -15,18 +15,6 @@ import java.util.concurrent.ForkJoinPool;
 import static spark.Spark.get;
 import static spark.Spark.port;
 
-/**
- * PEER - Sistema IPFS P2P.
- *
- * Tal como o Lider, esta classe ficou "fina": só trata de I/O (PubSub + REST de debug) e
- * despacha para {@link PeerEstado} (estado), {@link PeerConsenso} (RF1),
- * {@link PeerEleicao} (RNF3/RNF4) e {@link PeerPesquisa} (RF2).
- *
- * CORREÇÃO DE CONCORRÊNCIA (ver DOCUMENTACAO_SPRINTS.md, secção RNF2): o processamento de
- * queries (que faz chamadas de rede bloqueantes ao FAISS e ao IPFS) é despachado para um
- * executor dedicado (queryExecutor) em vez de correr dentro do mesmo método/lock que trata
- * heartbeats e eleição - assim uma pesquisa lenta nunca atrasa a deteção de falha do líder.
- */
 public class Peer {
 
     private static IPFS ipfs;
@@ -117,10 +105,6 @@ public class Peer {
         });
     }
 
-    // RNF5 - Dinamicidade de peers: anúncio periódico de presença, para que líder e
-    // restantes peers construam uma vista (eventualmente consistente) de quem está vivo.
-    // É essa vista que alimenta o common.PeerSelector (pinning do RF1 e distribuição de
-    // carga do RF2).
     private static void iniciarAnuncioPeriodico() {
         new Thread(() -> {
             while (true) {
@@ -168,7 +152,6 @@ public class Peer {
         });
     }
 
-    /** Router fino: cada tipo de mensagem vai para a classe responsável (ver javadoc da classe). */
     private static void processarMensagem(String mensagem) {
         try {
             String trimmed = mensagem.trim();
@@ -186,8 +169,6 @@ public class Peer {
                 }
                 case TipoMensagem.ATUALIZACAO -> consenso.tratarAtualizacao(json);
                 case TipoMensagem.COMMIT -> consenso.tratarCommit(json);
-                // Query despachada para um executor à parte: nunca deve bloquear
-                // heartbeats/eleição (ver javadoc da classe e de PeerEleicao).
                 case TipoMensagem.QUERY -> queryExecutor.submit(() -> pesquisa.tratarQuery(json));
                 default -> { /* mensagem de tipo desconhecido - ignorar */ }
             }

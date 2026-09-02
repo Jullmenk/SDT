@@ -11,25 +11,6 @@ import io.ipfs.api.IPFS;
 
 import java.util.List;
 
-/**
- * Lógica do protocolo de consenso (RF1) do lado do líder: PREPARE -> CONFIRMAÇÃO -> COMMIT.
- *
- * Corrige dois bugs identificados na análise ao código original:
- *
- *  1) Cálculo do quórum (Sprint 5). O código antigo fazia:
- *         List<Object> peers = Collections.singletonList(ipfs.pubsub.peers(TOPICO_PUBSUB));
- *         numPeers = Math.max(1, peers.size());
- *     `Collections.singletonList(...)` cria uma lista com UM elemento (que é a lista
- *     inteira lá dentro) — `peers.size()` dava sempre 1, e o quórum era sempre 1.
- *     Corrigido em {@link #calcularNumPeers()}: usa diretamente o resultado de
- *     ipfs.pubsub.peers(...), sem o embrulhar outra vez.
- *
- *  2) Falta da regra de pinning do RF1 ("cada ficheiro deve ser pinned por pelo menos 2
- *     peers"). Corrigido: ao fazer PREPARE, o líder já escolhe (de forma determinística,
- *     ver common.PeerSelector) os peers responsáveis pelo pinning e envia essa lista na
- *     própria mensagem PREPARE (campo "peersPin"); cada peer decide, ao receber o COMMIT,
- *     se está nessa lista e, se estiver, faz ipfs.pin.add(cid) (ver peer.PeerConsenso).
- */
 public class LiderConsenso {
 
     private final IPFS ipfs;
@@ -44,7 +25,7 @@ public class LiderConsenso {
         this.pinningReplicas = Config.getInt("pinning.replicas", 2);
     }
 
-    /** RF1 - Líder, passos 2-5: guarda no IPFS (feito antes de chamar isto), prepara nova versão e propaga. */
+
     public LiderEstado.VersaoPreparada publicarPrepare(String nomeFicheiro, String cid, byte[] conteudoFicheiro) {
         int numPeers = calcularNumPeers();
         int quorumNecessario = numPeers / 2 + 1;
@@ -74,17 +55,7 @@ public class LiderConsenso {
         return preparada;
     }
 
-    /**
-     * RNF3 (Sprint 6) - se este líder arrancou com uma versão PENDENTE recuperada do
-     * handoff da eleição (ver LiderEstado, construtor, e peer.PeerEleicao#arrancarNovoLider),
-     * essa versão nunca chegou a COMMIT do lado do líder anterior, e ninguém sabe quantas
-     * confirmações já tinha reunido (essa contagem era só dele, e morreu com ele). Em vez
-     * de tentar adivinhar isso, tratamo-la como uma ronda nova: recalcula-se o quórum com
-     * o número de peers ATUAL (pode ter mudado desde então) e repete-se o PREPARE com o
-     * MESMO conteúdo (mesmo cid/vetor/embeddings/peersPin - importante manter tudo igual,
-     * para o hash do vetor bater certo). Os peers que já a tinham como pendente
-     * simplesmente voltam a confirmar; nenhum dado se perde.
-     */
+
     public void republicarPendente(int versao) {
         List<String> novoVetor = estado.getVetorPendenteDaVersao(versao);
         String cid = estado.getCidDaVersao(versao);
@@ -121,7 +92,6 @@ public class LiderConsenso {
         publicar(msg);
     }
 
-    /** RF1 - Líder, passo final: recebe confirmação de um peer; se atingir quórum, faz commit. */
     public void tratarConfirmacao(JsonObject json) {
         int versao = json.get("versaoVetor").getAsInt();
         String hash = json.get("hashVetor").getAsString();
@@ -136,7 +106,6 @@ public class LiderConsenso {
 
         boolean aplicou = estado.confirmarVersao(versao);
         if (!aplicou) {
-            // Versão já tinha sido ultrapassada por outra mais recente (commit fora de ordem) - nada a fazer.
             return;
         }
 
@@ -153,16 +122,6 @@ public class LiderConsenso {
                 estado.getVetorConfirmado().size() + " documentos)\n");
     }
 
-    /**
-     * Corrige o bug de "Collections.singletonList" descrito na documentação da classe.
-     *
-     * NOTA: nesta versão da biblioteca java-ipfs-http-client, ipfs.pubsub.peers(...) está
-     * declarado a devolver "Object" (não "List&lt;String&gt;") - foi provavelmente por
-     * isso que o código original o embrulhava num singletonList, para conseguir atribuir
-     * o resultado a uma variável List sem erro de compilação. Em runtime o valor devolvido
-     * é uma Collection (tipicamente uma List de peer ids); fazemos aqui um "instanceof"
-     * seguro em vez de assumir isso às cegas, e caímos no fallback se não for o caso.
-     */
     private int calcularNumPeers() {
         try {
             Object resultado = ipfs.pubsub.peers(topico);

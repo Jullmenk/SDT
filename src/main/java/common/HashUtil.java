@@ -5,7 +5,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
 
-/** SHA-256 do vetor de CIDs, usado para o líder e os peers verificarem que têm o mesmo estado. */
 public final class HashUtil {
 
     private HashUtil() {

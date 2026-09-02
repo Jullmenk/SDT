@@ -68,6 +68,7 @@ public class Lider {
 
             subscreverPubSub();
             iniciarHeartbeats();
+            iniciarVerificacaoTimeoutsQuery();
 
             // RNF3 (Sprint 6) - se este líder arrancou com uma versão pendente recuperada
             // do handoff da eleição (ver LiderEstado, construtor), republica-a para reunir
@@ -232,6 +233,27 @@ public class Lider {
                 }
             }
         }, "heartbeat-thread").start();
+    }
+
+    // RF2 (correção) - verifica periodicamente se alguma query ficou sem resposta durante
+    // demasiado tempo (peer responsável em baixo, mensagem perdida, etc.) e reatribui a
+    // outro peer - ver lider.LiderPesquisa#verificarTimeouts para o detalhe. Corre com
+    // uma cadência bem menor que "query.timeout.ms" para detetar o timeout com pouco
+    // atraso, sem sobrecarregar o líder.
+    private static void iniciarVerificacaoTimeoutsQuery() {
+        new Thread(() -> {
+            while (true) {
+                try {
+                    Thread.sleep(1000);
+                    pesquisa.verificarTimeouts();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } catch (Exception e) {
+                    System.err.println("Erro ao verificar timeouts de query: " + e.getMessage());
+                }
+            }
+        }, "query-timeout-thread").start();
     }
 
     private static void subscreverPubSub() {

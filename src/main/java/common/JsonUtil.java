@@ -6,12 +6,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Map;
 
-/**
- * Utilitários JSON / PubSub partilhados entre Lider e Peer.
- *
- * O método extrairMensagem(...) estava duplicado byte-a-byte nas duas classes originais
- * (Lider.java e Peer.java). Uma única cópia aqui evita que as duas divirjam com o tempo.
- */
 public final class JsonUtil {
 
     public static final Gson GSON = new Gson();
@@ -19,11 +13,6 @@ public final class JsonUtil {
     private JsonUtil() {
     }
 
-    /**
-     * As mensagens recebidas via ipfs.pubsub.sub(...) chegam envolvidas num Map (com uma
-     * chave "data" em bytes ou em Base64, consoante a versão/config do cliente IPFS usado).
-     * Este método normaliza todos os formatos observados para uma String JSON simples.
-     */
     public static String extrairMensagem(Object obj) {
         if (obj == null) return null;
 

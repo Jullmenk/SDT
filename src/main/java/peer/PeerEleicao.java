@@ -9,35 +9,6 @@ import io.ipfs.api.IPFS;
 
 import java.util.List;
 
-/**
- * RNF3 (deteção de falha) + RNF4 (eleição), lado do peer.
- *
- * CORREÇÕES:
- *
- *  1) Isolamento do lock (RNF2). No código original, TODO o processamento de mensagens
- *     (incluindo pesquisas RF2, que fazem chamadas de rede bloqueantes ao FAISS e ao
- *     IPFS) corria dentro de um único método "synchronized" que também protegia as
- *     variáveis de eleição. Se uma pesquisa demorasse muito (ou bloqueasse, por não haver
- *     timeout - ver FaissClient), a deteção de falha do líder deste peer ficava
- *     bloqueada à espera do mesmo lock. Esta classe tem o SEU PRÓPRIO lock, só para as
- *     variáveis de eleição/heartbeat, independente do processamento de queries
- *     (ver peer.Peer, que despacha queries para um executor à parte).
- *
- *  2) Handoff de estado no failover (Sprint 6). Antes de arrancar um novo processo
- *     Líder, este peer agora escreve o SEU PRÓPRIO vetor confirmado (que já tem em
- *     memória, recebido via COMMIT) em "estado_lider.json" — para o novo Líder arrancar
- *     já com os dados, em vez de arrancar vazio. Ver {@link #arrancarNovoLider()}.
- *
- *  3) Handoff das estruturas TEMPORÁRIAS, não só das permanentes (Sprint 6, correção
- *     posterior). O enunciado pede explicitamente que a recuperação envolva "todas as
- *     estruturas de dados permanentes e temporárias armazenadas pelo líder". O ponto (2)
- *     só recuperava o vetor confirmado (permanente); se o líder morresse a meio de uma
- *     ronda de consenso (já tinha feito PREPARE, ainda sem quórum), essa versão pendente
- *     perdia-se. Agora {@link #construirHandoffPendente()} inclui também, se existir, a
- *     versão pendente mais recente que este peer já recebeu via PREPARE — o novo líder
- *     recupera-a e volta a publicá-la (ver lider.LiderConsenso#republicarPendente), como
- *     se fosse um PREPARE novo, para reunir confirmações outra vez.
- */
 public class PeerEleicao {
 
     private final PeerEstado estado;
@@ -141,26 +112,13 @@ public class PeerEleicao {
         }
     }
 
-    /**
-     * NOTA IMPORTANTE PARA A DEFESA (RNF3/Sprint 6): isto continua a ser uma eleição
-     * simples (maior id vence), sem números de termo/época ao estilo Raft. Isso significa
-     * que, numa partição de rede em que o líder antigo continua vivo mas os peers deixam
-     * de o ouvir, é POSSÍVEL haver dois líderes em simultâneo por breves instantes
-     * (split-brain) até a rede recuperar. Não implementámos deteção/fencing desse cenário
-     * — é uma limitação conhecida e documentada, não um esquecimento (ver README.md,
-     * secção "Limitações conhecidas").
-     */
     private void arrancarNovoLider() {
         synchronized (lock) {
             if (liderProcessStarted) return;
             liderProcessStarted = true;
         }
         try {
-            // Handoff de estado: o novo processo Líder vai ler este ficheiro ao arrancar
-            // (ver lider.LiderEstado). Sem esta escrita, o líder novo arrancava vazio.
-            // Inclui também a versão PENDENTE (temporária) mais recente, se este peer
-            // conhecer alguma - ver construirHandoffPendente() e o javadoc de
-            // common.EstadoPersistente.
+
             EstadoPersistente.VersaoPendente pendente = construirHandoffPendente();
             EstadoPersistente.escrever(EstadoPersistente.FICHEIRO_OMISSAO,
                     estado.getVetorConfirmado(), estado.getVersaoConfirmada(), pendente);
@@ -188,12 +146,7 @@ public class PeerEleicao {
             liderProcessStarted = false;
         }
     }
-
-    /**
-     * Constrói a versão pendente a incluir no handoff, se este peer tiver alguma (ver
-     * PeerEstado#getVersaoPendenteMaisRecente). Devolve null se não houver nenhuma versão
-     * pendente por aplicar - caso normal, se o líder morreu sem nenhum upload "a meio".
-     */
+    
     private EstadoPersistente.VersaoPendente construirHandoffPendente() {
         int versaoPendente = estado.getVersaoPendenteMaisRecente();
         if (versaoPendente < 0 || versaoPendente <= estado.getVersaoConfirmada()) {
